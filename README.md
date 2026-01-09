@@ -2,27 +2,26 @@
 
 Automatically checks [estatesales.net](https://www.estatesales.net/TX/Austin/78759) every Wednesday evening and sends SMS notifications with estate sales within 15 miles of Austin 78759.
 
+Uses free email-to-SMS gateways (no Twilio costs).
+
 ## Setup
 
-### 1. Create a Twilio Account
+### 1. Create a Gmail App Password
 
-1. Sign up at [twilio.com](https://www.twilio.com/try-twilio)
-2. Get your **Account SID** and **Auth Token** from the [Twilio Console](https://console.twilio.com/)
-3. Get a phone number from the [Phone Numbers page](https://console.twilio.com/us1/develop/phone-numbers/manage/incoming)
+1. Go to [Google Account Security](https://myaccount.google.com/security)
+2. Enable 2-Step Verification if not already enabled
+3. Go to [App Passwords](https://myaccount.google.com/apppasswords)
+4. Create a new app password (select "Mail" and "Other")
+5. Copy the 16-character password
 
 ### 2. Create GitHub Repository
-
-1. Create a new repository on GitHub
-2. Push this code to the repository:
 
 ```bash
 cd estate-sales-notifier
 git init
 git add .
 git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/estate-sales-notifier.git
-git push -u origin main
+gh repo create estate-sales-notifier --private --push
 ```
 
 ### 3. Add GitHub Secrets
@@ -31,13 +30,12 @@ Go to your repository **Settings** → **Secrets and variables** → **Actions**
 
 | Secret Name | Value |
 |-------------|-------|
-| `TWILIO_ACCOUNT_SID` | Your Twilio Account SID (starts with `AC`) |
-| `TWILIO_AUTH_TOKEN` | Your Twilio Auth Token |
-| `TWILIO_PHONE_NUMBER` | Your Twilio phone number (format: `+1XXXXXXXXXX`) |
+| `SMTP_EMAIL` | Your Gmail address |
+| `SMTP_PASSWORD` | Your Gmail app password (16 chars) |
 
 ### 4. Enable GitHub Actions
 
-GitHub Actions should be enabled by default. The workflow will run:
+The workflow will run:
 - **Automatically**: Every Wednesday at 8 PM Central Time
 - **Manually**: Click "Run workflow" in the Actions tab to test
 
@@ -52,34 +50,35 @@ BASE_URL = "https://www.estatesales.net/TX/Austin/78759"
 # Change the distance filter
 MAX_DISTANCE_MILES = 15
 
-# Change recipient phone numbers (E.164 format)
-PHONE_NUMBERS = ["+19259844951", "+15126530151"]
+# Change recipients (use carrier gateway)
+SMS_RECIPIENTS = [
+    "9259844951@tmomail.net",  # T-Mobile
+    "5126530151@tmomail.net",
+]
 ```
+
+### Email-to-SMS Gateways by Carrier
+
+| Carrier | Gateway |
+|---------|---------|
+| T-Mobile | `number@tmomail.net` |
+| AT&T | `number@txt.att.net` |
+| Verizon | `number@vtext.com` |
+| Sprint | `number@messaging.sprintpcs.com` |
 
 ## Local Testing
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
-# Set environment variables
-export TWILIO_ACCOUNT_SID="your_account_sid"
-export TWILIO_AUTH_TOKEN="your_auth_token"
-export TWILIO_PHONE_NUMBER="+1234567890"
+export SMTP_EMAIL="your.email@gmail.com"
+export SMTP_PASSWORD="your_app_password"
 
-# Run the script
 python estate_sales_notifier.py
 ```
 
-Without Twilio credentials, the script will print the message instead of sending SMS.
+Without credentials, the script prints the message instead of sending.
 
 ## Cost
 
-- **GitHub Actions**: Free for public repos, 2000 minutes/month for private repos
-- **Twilio SMS**: ~$0.0079/message sent + ~$1/month for phone number
-
-## Troubleshooting
-
-- **No sales found**: The website structure may have changed. Check the scraping selectors.
-- **SMS not received**: Verify Twilio credentials and phone number format.
-- **Action not running**: Check that Actions are enabled in repository settings.
+**Free!** Uses Gmail SMTP and carrier email-to-SMS gateways.
