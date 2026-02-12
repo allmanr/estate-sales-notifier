@@ -12,7 +12,11 @@ import re
 import json
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 from typing import Optional
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -265,25 +269,29 @@ def send_notification(message: str, dry_run: bool = False):
         print(f"Skipping notification (credentials issue): {e}")
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
-    # Calculate next Friday for all-day event
-    days_until_friday = (4 - now.weekday()) % 7  # Friday = 4
-    if days_until_friday <= 0:
-        days_until_friday += 7
-    friday = (now + timedelta(days=days_until_friday)).strftime("%Y-%m-%d")
+    # Calculate next Friday in local timezone for the all-day event
+    local_tz = ZoneInfo("America/Chicago")
+    local_now = now.astimezone(local_tz)
+    days_until_friday = (4 - local_now.weekday()) % 7  # Friday = 4
+    if days_until_friday == 0:
+        days_until_friday = 7
+    friday_date = (local_now + timedelta(days=days_until_friday)).date()
+    friday = friday_date.strftime("%Y-%m-%d")
+    friday_end = (friday_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # All-day event for Friday (the actual calendar entry)
     main_event = {
         "summary": "Estate Sales This Weekend",
         "description": message,
         "start": {"date": friday},
-        "end": {"date": friday},
+        "end": {"date": friday_end},
         "colorId": "8",  # Graphite/slate
         "reminders": {"useDefault": False, "overrides": []},
     }
 
-    # Notification event - starts in 2 min, triggers popup immediately
+    # Notification event - starts in 2 min, popup fires ~1 min after creation
     notif_time = now + timedelta(minutes=2)
     notif_event = {
         "summary": "🏷️ Estate Sales This Weekend",
@@ -309,7 +317,7 @@ def send_notification(message: str, dry_run: bool = False):
     for calendar_id in CALENDAR_IDS:
         for event in events_to_create:
             try:
-                created = service.events().insert(calendarId=calendar_id, body=event).execute()
+                service.events().insert(calendarId=calendar_id, body=event).execute()
                 print(f"Event created for {calendar_id}: {event['summary']}")
             except Exception as e:
                 print(f"Failed to create event for {calendar_id}: {e}")
