@@ -5,7 +5,6 @@ from estate_sales_notifier import (
     parse_sale_card,
     is_within_distance,
     format_date_range,
-    format_event_description,
     format_summary_description,
     MAX_DISTANCE_MILES,
 )
@@ -135,30 +134,6 @@ class TestFormatDateRange:
         # e.g. "119am" should be parsed as "11" and "9am"
         result = format_date_range("Feb 14 119am to 3pm")
         assert "9am" in result or "11" in result
-
-
-# ---------------------------------------------------------------------------
-# format_event_description
-# ---------------------------------------------------------------------------
-
-class TestFormatEventDescription:
-    def test_includes_url(self):
-        sale = {
-            "title": "Test Sale",
-            "url": "https://www.estatesales.net/TX/Austin/78759/123",
-            "address": "123 Main St",
-            "dates": "Feb 14 9am to 3pm",
-            "distance_text": "2 mi",
-        }
-        desc = format_event_description(sale)
-        assert "https://www.estatesales.net" in desc
-        assert "123 Main St" in desc
-        assert "2 mi" in desc
-
-    def test_handles_missing_fields(self):
-        sale = {"title": "Minimal Sale", "url": "https://example.com"}
-        desc = format_event_description(sale)
-        assert "https://example.com" in desc
 
 
 # ---------------------------------------------------------------------------

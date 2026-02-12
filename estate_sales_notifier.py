@@ -198,22 +198,6 @@ def format_date_range(date_text: str) -> str:
         return ""
 
 
-def format_event_description(sale: dict) -> str:
-    """Format a single sale into a clean calendar event description."""
-    lines = []
-    dates = format_date_range(sale.get("dates", ""))
-    if dates:
-        lines.append(f"📅 {dates}")
-    if sale.get("address"):
-        lines.append(f"📍 {sale['address']}")
-    distance = sale.get("distance_text", "")
-    if distance:
-        lines.append(f"📏 {distance} away")
-    lines.append("")
-    lines.append(sale["url"])
-    return "\n".join(lines)
-
-
 def format_summary_description(sales: list[dict]) -> str:
     """Format all sales into a summary for the overview calendar event."""
     if not sales:
@@ -263,7 +247,7 @@ def get_calendar_service():
 
 
 def create_calendar_events(sales: list[dict], dry_run: bool = False):
-    """Create Google Calendar events for each sale on the shared calendar."""
+    """Create a single summary calendar event as a notification mechanism."""
     try:
         service = get_calendar_service()
         service.calendarList().list(maxResults=1).execute()
@@ -282,16 +266,15 @@ def create_calendar_events(sales: list[dict], dry_run: bool = False):
         days_until_friday += 7
     friday = now + timedelta(days=days_until_friday)
     saturday = friday + timedelta(days=1)
-    sunday = saturday + timedelta(days=1)
-    monday = sunday + timedelta(days=1)
 
-    # Summary event spanning Fri-Sun
     summary_desc = format_summary_description(sales)
-    summary_event = {
+
+    # Single all-day event on Friday with a popup reminder
+    event = {
         "summary": f"🏷️ Estate Sales This Weekend ({len(sales)} found)",
         "description": summary_desc,
         "start": {"date": friday.strftime("%Y-%m-%d")},
-        "end": {"date": monday.strftime("%Y-%m-%d")},  # exclusive end date
+        "end": {"date": saturday.strftime("%Y-%m-%d")},  # exclusive end
         "colorId": "8",
         "reminders": {
             "useDefault": False,
@@ -300,38 +283,11 @@ def create_calendar_events(sales: list[dict], dry_run: bool = False):
         "transparency": "transparent",
     }
 
-    events_to_create = [summary_event]
-
-    # Individual events for each sale (up to 15)
-    for sale in sales[:15]:
-        start_time, end_time = _parse_sale_times(sale, friday, saturday, sunday)
-        event = {
-            "summary": sale["title"],
-            "description": format_event_description(sale),
-            "start": {"date": start_time.strftime("%Y-%m-%d")},
-            "end": {"date": (start_time + timedelta(days=1)).strftime("%Y-%m-%d")},
-            "colorId": "3",  # Grape/purple
-            "reminders": {"useDefault": False, "overrides": []},
-            "transparency": "transparent",
-        }
-        if sale.get("address"):
-            event["location"] = sale["address"]
-        events_to_create.append(event)
-
-    for event in events_to_create:
-        try:
-            service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
-            log.info("Created: %s", event["summary"])
-        except Exception as e:
-            log.error("Failed to create '%s': %s", event["summary"], e)
-
-
-def _parse_sale_times(
-    sale: dict, friday: datetime, saturday: datetime, sunday: datetime
-) -> tuple[datetime, datetime]:
-    """Determine the best start/end dates for a sale event."""
-    # Default to Friday if we can't parse dates
-    return friday, friday + timedelta(days=1)
+    try:
+        service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+        log.info("Created: %s", event["summary"])
+    except Exception as e:
+        log.error("Failed to create event: %s", e)
 
 
 def main():

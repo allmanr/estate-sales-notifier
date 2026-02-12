@@ -21,9 +21,9 @@ I've completed a comprehensive review of the Estate Sales Notifier. The tool had
 | # | Issue | Status |
 |---|-------|--------|
 | 4 | **No sort order** — sales displayed in page-scrape order, not distance | ✅ Fixed → sorted by distance ascending, unknowns last |
-| 5 | **SMS-style message formatting** — title truncated to 45 chars, numbered list crammed into a single event description, "ESTATE SALES THIS WEEKEND" header from SMS era | ✅ Fixed → individual calendar events per sale + clean summary event |
+| 5 | **SMS-style message formatting** — title truncated to 45 chars, numbered list crammed into a single event description, "ESTATE SALES THIS WEEKEND" header from SMS era | ✅ Fixed → clean summary description with addresses and links |
 | 6 | **UTC timezone for notification events** — popup notification used UTC times, confusing for Central Time users | ✅ Fixed → added `TIMEZONE = "America/Chicago"` config |
-| 7 | **Hardcoded to 10-sale limit** — old `format_message` capped at 10 with a "+ N more" note. Calendar events can handle more | ✅ Fixed → up to 15 individual events + unlimited in summary |
+| 7 | **Hardcoded to 10-sale limit** — old `format_message` capped at 10 with a "+ N more" note | ✅ Fixed → all sales included in summary |
 | 8 | **`CALENDAR_IDS` was a list for a single calendar** — unnecessary complexity, misleading name | ✅ Fixed → `CALENDAR_ID` singular string |
 | 9 | **README entirely about SMS** — documented SMTP setup, carrier gateways, and app passwords for a tool that no longer sends SMS | ✅ Fixed → complete rewrite |
 
