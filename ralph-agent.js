@@ -18,7 +18,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 
 const PROJECT_DIR = process.cwd();
 
@@ -31,11 +31,12 @@ const tools = {
     }),
     execute: async ({ pattern }) => {
       try {
-        const cmd = pattern 
-          ? `find . -name "${pattern}" -type f | head -50`
-          : `find . -maxdepth 2 -type f | head -50`;
-        const output = execSync(cmd, { cwd: PROJECT_DIR, encoding: 'utf-8' });
-        return { files: output.trim().split('\n').filter(Boolean) };
+        const args = pattern
+          ? ['.', '-name', pattern, '-type', 'f']
+          : ['.', '-maxdepth', '2', '-type', 'f'];
+        const output = execFileSync('find', args, { cwd: PROJECT_DIR, encoding: 'utf-8' });
+        const files = output.trim().split('\n').filter(Boolean).slice(0, 50);
+        return { files };
       } catch (error) {
         return { error: error.message };
       }

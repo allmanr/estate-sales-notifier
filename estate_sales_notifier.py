@@ -14,6 +14,10 @@ import json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 
 from typing import Optional
 from google.oauth2 import service_account
@@ -201,7 +205,7 @@ def format_date_range(date_text: str) -> str:
 def format_summary_description(sales: list[dict]) -> str:
     """Format all sales into a summary for the overview calendar event."""
     if not sales:
-        return "No estate sales found within 15 miles this week."
+        return f"No estate sales found within {MAX_DISTANCE_MILES} miles this week."
 
     lines = []
     for i, sale in enumerate(sales, 1):
@@ -260,12 +264,13 @@ def create_calendar_events(sales: list[dict], dry_run: bool = False):
 
     now = datetime.now(timezone.utc)
 
-    # Calculate next Friday
-    days_until_friday = (4 - now.weekday()) % 7
+    # Calculate next Friday in the local timezone
+    local_now = now.astimezone(ZoneInfo(TIMEZONE))
+    days_until_friday = (4 - local_now.weekday()) % 7
     if days_until_friday <= 0:
         days_until_friday += 7
-    friday = now + timedelta(days=days_until_friday)
-    saturday = friday + timedelta(days=1)
+    friday_date = (local_now + timedelta(days=days_until_friday)).date()
+    saturday_date = friday_date + timedelta(days=1)
 
     summary_desc = format_summary_description(sales)
 
@@ -273,8 +278,8 @@ def create_calendar_events(sales: list[dict], dry_run: bool = False):
     event = {
         "summary": f"🏷️ Estate Sales This Weekend ({len(sales)} found)",
         "description": summary_desc,
-        "start": {"date": friday.strftime("%Y-%m-%d")},
-        "end": {"date": saturday.strftime("%Y-%m-%d")},  # exclusive end
+        "start": {"date": friday_date.strftime("%Y-%m-%d")},
+        "end": {"date": saturday_date.strftime("%Y-%m-%d")},  # exclusive end
         "colorId": "8",
         "reminders": {
             "useDefault": False,

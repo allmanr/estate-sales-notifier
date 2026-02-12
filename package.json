@@ -2,7 +2,10 @@
   "name": "estate-sales-notifier",
   "version": "1.0.0",
   "type": "module",
-  "description": "Automatically checks estatesales.net every Wednesday evening and sends SMS notifications.",
+  "description": "Automatically checks estatesales.net every Wednesday evening and creates Google Calendar events for upcoming sales.",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "ralph-agent.js",
   "scripts": {
     "ralph": "node ralph-agent.js",
