@@ -1,84 +1,55 @@
 # Estate Sales Notifier
 
-Automatically checks [estatesales.net](https://www.estatesales.net/TX/Austin/78759) every Wednesday evening and sends SMS notifications with estate sales within 15 miles of Austin 78759.
+Scrapes [estatesales.net](https://www.estatesales.net/TX/Austin/78759) every Wednesday evening and pushes estate sale events directly to a shared Google Calendar.
 
-Uses free email-to-SMS gateways (no Twilio costs).
+## How It Works
+
+1. **Scrapes** estatesales.net for sales within 15 miles of Austin 78759
+2. **Sorts** results by distance (nearest first)
+3. **Creates** individual Google Calendar events for each sale, plus a weekend summary event
+4. Runs automatically via **GitHub Actions** every Wednesday at 9 PM CT
 
 ## Setup
 
-### 1. Create a Gmail App Password
+### Google Service Account
 
-1. Go to [Google Account Security](https://myaccount.google.com/security)
-2. Enable 2-Step Verification if not already enabled
-3. Go to [App Passwords](https://myaccount.google.com/apppasswords)
-4. Create a new app password (select "Mail" and "Other")
-5. Copy the 16-character password
+1. Create a GCP project and enable the Google Calendar API
+2. Create a service account and download the JSON key
+3. Share your Google Calendar with the service account email (`client_email` in the JSON)
+4. Store the JSON key contents as a GitHub Actions secret: `GOOGLE_CREDENTIALS_JSON`
 
-### 2. Create GitHub Repository
+### GitHub Actions Secrets
 
-```bash
-cd estate-sales-notifier
-git init
-git add .
-git commit -m "Initial commit"
-gh repo create estate-sales-notifier --private --push
-```
+| Secret | Description |
+|--------|-------------|
+| `GOOGLE_CREDENTIALS_JSON` | Full JSON contents of the service account key file |
 
-### 3. Add GitHub Secrets
-
-Go to your repository **Settings** → **Secrets and variables** → **Actions** and add:
-
-| Secret Name | Value |
-|-------------|-------|
-| `SMTP_EMAIL` | Your Gmail address |
-| `SMTP_PASSWORD` | Your Gmail app password (16 chars) |
-
-### 4. Enable GitHub Actions
-
-The workflow will run:
-- **Automatically**: Every Wednesday at 8 PM Central Time
-- **Manually**: Click "Run workflow" in the Actions tab to test
-
-## Configuration
-
-Edit `estate_sales_notifier.py` to customize:
-
-```python
-# Change the search location
-BASE_URL = "https://www.estatesales.net/TX/Austin/78759"
-
-# Change the distance filter
-MAX_DISTANCE_MILES = 15
-
-# Change recipients (use carrier gateway)
-SMS_RECIPIENTS = [
-    "9259844951@tmomail.net",  # T-Mobile
-    "5126530151@tmomail.net",
-]
-```
-
-### Email-to-SMS Gateways by Carrier
-
-| Carrier | Gateway |
-|---------|---------|
-| T-Mobile | `number@tmomail.net` |
-| AT&T | `number@txt.att.net` |
-| Verizon | `number@vtext.com` |
-| Sprint | `number@messaging.sprintpcs.com` |
-
-## Local Testing
+### Local Development
 
 ```bash
 pip install -r requirements.txt
 
-export SMTP_EMAIL="your.email@gmail.com"
-export SMTP_PASSWORD="your_app_password"
-
+# Place your service account key at credentials.json (git-ignored)
 python estate_sales_notifier.py
+
+# Dry run (authenticate but don't create events)
+DRY_RUN=true python estate_sales_notifier.py
 ```
 
-Without credentials, the script prints the message instead of sending.
+## Configuration
 
-## Cost
+Edit constants at the top of `estate_sales_notifier.py`:
 
-**Free!** Uses Gmail SMTP and carrier email-to-SMS gateways.
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `BASE_URL` | Austin 78759 | estatesales.net search URL |
+| `MAX_DISTANCE_MILES` | 15 | Radius filter |
+| `CALENDAR_ID` | *(family calendar)* | Target Google Calendar ID |
+| `TIMEZONE` | `America/Chicago` | Local timezone for events |
+
+## Testing
+
+```bash
+pip install -r requirements.txt
+pytest tests/ -v
+```

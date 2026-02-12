@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Estate Sales Notifier
-Scrapes estatesales.net for sales within 15 miles of Austin 78759
-and creates Google Calendar events with notifications.
+Scrapes estatesales.net for sales within a configured radius
+and creates Google Calendar events on a shared family calendar.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import json
@@ -17,26 +18,31 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:
     from backports.zoneinfo import ZoneInfo
+
 from typing import Optional
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+log = logging.getLogger(__name__)
 
 # Configuration
 BASE_URL = "https://www.estatesales.net/TX/Austin/78759"
 MAX_DISTANCE_MILES = 15
+TIMEZONE = "America/Chicago"
 
-# Calendar IDs (shared family calendar)
-CALENDAR_IDS = [
-    "family06363352051675734146@group.calendar.google.com",
-]
+# Shared family calendar
+CALENDAR_ID = "family06363352051675734146@group.calendar.google.com"
 
 # Path to service account credentials
 CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 
 
 def fetch_estate_sales() -> list[dict]:
-    """Fetch and parse estate sales from the website."""
+    """Fetch and parse estate sales from the website, sorted by distance."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -47,13 +53,15 @@ def fetch_estate_sales() -> list[dict]:
     soup = BeautifulSoup(response.text, "html.parser")
     sales = []
 
-    # Find all sale listings - they use <a class="sale-row"> elements
     sale_rows = soup.find_all("a", class_="sale-row")
 
     for row in sale_rows:
         sale = parse_sale_card(row)
         if sale and is_within_distance(sale.get("distance")):
             sales.append(sale)
+
+    # Sort by distance (nearest first); unknown distances sort last
+    sales.sort(key=lambda s: s.get("distance") if s.get("distance") is not None else float("inf"))
 
     return sales
 
@@ -115,14 +123,8 @@ def parse_sale_card(card) -> Optional[dict]:
 
         return sale
     except Exception as e:
-        print(f"Error parsing sale card: {e}")
+        log.warning("Error parsing sale card: %s", e)
         return None
-
-
-def parse_distance(text: str) -> Optional[float]:
-    """Extract numeric distance from text like '5.2 mi' or '12 miles'."""
-    match = re.search(r"(\d+(?:\.\d+)?)", text)
-    return float(match.group(1)) if match else None
 
 
 def is_within_distance(distance: Optional[float]) -> bool:
@@ -200,35 +202,28 @@ def format_date_range(date_text: str) -> str:
         return ""
 
 
-def format_message(sales: list[dict]) -> str:
-    """Format the sales into a clean, readable message."""
+def format_summary_description(sales: list[dict]) -> str:
+    """Format all sales into a summary for the overview calendar event."""
     if not sales:
-        return "No estate sales found within 15 miles this week."
+        return f"No estate sales found within {MAX_DISTANCE_MILES} miles this week."
 
-    lines = ["ESTATE SALES THIS WEEKEND", "Near Austin 78759", ""]
-
-    for i, sale in enumerate(sales[:10], 1):
-        title = sale["title"][:45]
+    lines = []
+    for i, sale in enumerate(sales, 1):
+        title = sale["title"]
         distance = sale.get("distance_text", "")
         dates = format_date_range(sale.get("dates", ""))
-        url = sale["url"]
 
-        # Clean title line
+        header = f"{i}. {title}"
         if distance:
-            lines.append(f"{i}. {title} [{distance}]")
-        else:
-            lines.append(f"{i}. {title}")
+            header += f" ({distance})"
+        lines.append(header)
 
-        # Date/time on its own line
         if dates:
             lines.append(f"   {dates}")
-
-        # Link
-        lines.append(f"   {url}")
+        if sale.get("address"):
+            lines.append(f"   {sale['address']}")
+        lines.append(f"   {sale['url']}")
         lines.append("")
-
-    if len(sales) > 10:
-        lines.append(f"+ {len(sales) - 10} more at {BASE_URL}")
 
     return "\n".join(lines)
 
@@ -255,100 +250,73 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=creds)
 
 
-def send_notification(message: str, dry_run: bool = False):
-    """Create Google Calendar event with popup notification."""
+def create_calendar_events(sales: list[dict], dry_run: bool = False):
+    """Create a single summary calendar event as a notification mechanism."""
     try:
         service = get_calendar_service()
-        # Verify credentials work by making a lightweight call
         service.calendarList().list(maxResults=1).execute()
         if dry_run:
-            print("DRY RUN: Successfully authenticated with Google Calendar API.")
-            print("DRY RUN: Skipping event creation.")
+            log.info("DRY RUN: Authenticated OK. Skipping event creation.")
             return
     except Exception as e:
-        print(f"Skipping notification (credentials issue): {e}")
+        log.error("Skipping notification (credentials issue): %s", e)
         return
 
     now = datetime.now(timezone.utc)
 
-    # Calculate next Friday in local timezone for the all-day event
-    local_tz = ZoneInfo("America/Chicago")
-    local_now = now.astimezone(local_tz)
-    days_until_friday = (4 - local_now.weekday()) % 7  # Friday = 4
-    if days_until_friday == 0:
-        days_until_friday = 7
+    # Calculate next Friday in the local timezone
+    local_now = now.astimezone(ZoneInfo(TIMEZONE))
+    days_until_friday = (4 - local_now.weekday()) % 7
+    if days_until_friday <= 0:
+        days_until_friday += 7
     friday_date = (local_now + timedelta(days=days_until_friday)).date()
-    friday = friday_date.strftime("%Y-%m-%d")
-    friday_end = (friday_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    saturday_date = friday_date + timedelta(days=1)
 
-    # All-day event for Friday (the actual calendar entry)
-    main_event = {
-        "summary": "Estate Sales This Weekend",
-        "description": message,
-        "start": {"date": friday},
-        "end": {"date": friday_end},
-        "colorId": "8",  # Graphite/slate
-        "reminders": {"useDefault": False, "overrides": []},
-    }
+    summary_desc = format_summary_description(sales)
 
-    # Notification event - starts in 2 min, popup fires ~1 min after creation
-    notif_time = now + timedelta(minutes=2)
-    notif_event = {
-        "summary": "🏷️ Estate Sales This Weekend",
-        "description": message,
-        "start": {
-            "dateTime": notif_time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "timeZone": "UTC",
-        },
-        "end": {
-            "dateTime": (notif_time + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S"),
-            "timeZone": "UTC",
-        },
+    # Single all-day event on Friday with a popup reminder
+    event = {
+        "summary": f"🏷️ Estate Sales This Weekend ({len(sales)} found)",
+        "description": summary_desc,
+        "start": {"date": friday_date.strftime("%Y-%m-%d")},
+        "end": {"date": saturday_date.strftime("%Y-%m-%d")},  # exclusive end
         "colorId": "8",
         "reminders": {
             "useDefault": False,
-            "overrides": [{"method": "popup", "minutes": 1}],
+            "overrides": [{"method": "popup", "minutes": 60 * 12}],  # noon Thursday
         },
-        "transparency": "transparent",  # Shows as "free" not "busy"
+        "transparency": "transparent",
     }
 
-    events_to_create = [main_event, notif_event]
-
-    for calendar_id in CALENDAR_IDS:
-        for event in events_to_create:
-            try:
-                service.events().insert(calendarId=calendar_id, body=event).execute()
-                print(f"Event created for {calendar_id}: {event['summary']}")
-            except Exception as e:
-                print(f"Failed to create event for {calendar_id}: {e}")
+    try:
+        service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+        log.info("Created: %s", event["summary"])
+    except Exception as e:
+        log.error("Failed to create event: %s", e)
 
 
 def main():
     """Main entry point."""
-    print(f"Fetching estate sales from {BASE_URL}...")
+    log.info("Fetching estate sales from %s", BASE_URL)
 
-    # Check for dry run flag
     dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
     if dry_run:
-        print("Running in DRY RUN mode - no events will be created.")
+        log.info("DRY RUN mode — no events will be created")
 
     try:
         sales = fetch_estate_sales()
-        print(f"Found {len(sales)} sales within {MAX_DISTANCE_MILES} miles")
+        log.info("Found %d sales within %d miles", len(sales), MAX_DISTANCE_MILES)
 
-        message = format_message(sales)
-        print(f"\nMessage ({len(message)} chars):")
-        print(message)
+        if sales:
+            for i, s in enumerate(sales, 1):
+                dist = s.get("distance_text", "?")
+                log.info("  %d. %s (%s)", i, s["title"], dist)
 
-        print("\nSending calendar invite notifications...")
-        send_notification(message, dry_run=dry_run)
-
-        print("\nDone!")
+        log.info("Creating calendar events...")
+        create_calendar_events(sales, dry_run=dry_run)
+        log.info("Done!")
     except Exception as e:
-        error_msg = f"Estate Sales Notifier Error: {e}"
-        print(error_msg)
-        if not dry_run:
-            send_notification(error_msg)
+        log.exception("Estate Sales Notifier failed: %s", e)
         raise
 
 

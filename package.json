@@ -1,0 +1,23 @@
+{
+  "name": "estate-sales-notifier",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automatically checks estatesales.net every Wednesday evening and creates Google Calendar events for upcoming sales.",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "ralph-agent.js",
+  "scripts": {
+    "ralph": "node ralph-agent.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ai": "^6.0.27",
+    "dotenv": "^17.2.3",
+    "ralph-loop-agent": "^0.0.3",
+    "zod": "^4.3.5"
+  }
+}
