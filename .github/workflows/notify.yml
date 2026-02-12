@@ -2,7 +2,7 @@ name: Estate Sales Notifier
 
 on:
   schedule:
-    - cron: '0 2 * * 4'  # 8 PM CST Wednesday (2 AM UTC Thursday)
+    - cron: '0 3 * * 4'  # 9 PM CST Wednesday (3 AM UTC Thursday)
   workflow_dispatch:
 
 jobs:
