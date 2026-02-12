@@ -49,6 +49,7 @@ def fetch_estate_sales() -> list[dict]:
 
     response = requests.get(BASE_URL, headers=headers, timeout=30)
     response.raise_for_status()
+    response.encoding = "utf-8"
 
     soup = BeautifulSoup(response.text, "html.parser")
     sales = []
@@ -88,9 +89,16 @@ def parse_sale_card(card) -> Optional[dict]:
         title_elem = card.find("h3")
         sale["title"] = title_elem.get_text(strip=True) if title_elem else "Estate Sale"
 
-        # Get address
+        # Get address (exclude nested distance element)
         address_elem = card.find(class_=re.compile(r"sale-row__address"))
-        sale["address"] = address_elem.get_text(strip=True) if address_elem else ""
+        if address_elem:
+            # Remove distance child before extracting text
+            addr_copy = BeautifulSoup(str(address_elem), "html.parser")
+            for dist_child in addr_copy.find_all(class_=re.compile(r"sale-row__distance")):
+                dist_child.decompose()
+            sale["address"] = addr_copy.get_text(" ", strip=True).replace("\xa0", " ")
+        else:
+            sale["address"] = ""
 
         # Get dates
         date_elem = card.find(class_=re.compile(r"sale-row__date"))
@@ -250,6 +258,37 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=creds)
 
 
+def build_calendar_event(sales: list[dict], now: datetime) -> dict:
+    """Build the calendar event dict (pure logic, no API calls)."""
+    local_now = now.astimezone(ZoneInfo(TIMEZONE))
+    days_until_friday = (4 - local_now.weekday()) % 7
+    if days_until_friday <= 0:
+        days_until_friday += 7
+    friday_date = (local_now + timedelta(days=days_until_friday)).date()
+    saturday_date = friday_date + timedelta(days=1)
+
+    summary_desc = format_summary_description(sales)
+
+    # For all-day events, reminder minutes are counted backward from midnight
+    # on the event day. We want a notification ~2 minutes after the script runs.
+    friday_midnight = datetime.combine(friday_date, datetime.min.time(), tzinfo=ZoneInfo(TIMEZONE))
+    reminder_time = local_now + timedelta(minutes=2)
+    reminder_minutes = max(0, int((friday_midnight - reminder_time).total_seconds() // 60))
+
+    return {
+        "summary": f"🏷️ Estate Sales This Weekend ({len(sales)} found)",
+        "description": summary_desc,
+        "start": {"date": friday_date.strftime("%Y-%m-%d")},
+        "end": {"date": saturday_date.strftime("%Y-%m-%d")},  # exclusive end
+        "colorId": "8",
+        "reminders": {
+            "useDefault": False,
+            "overrides": [{"method": "popup", "minutes": reminder_minutes}],
+        },
+        "transparency": "transparent",
+    }
+
+
 def create_calendar_events(sales: list[dict], dry_run: bool = False):
     """Create a single summary calendar event as a notification mechanism."""
     try:
@@ -263,30 +302,7 @@ def create_calendar_events(sales: list[dict], dry_run: bool = False):
         return
 
     now = datetime.now(timezone.utc)
-
-    # Calculate next Friday in the local timezone
-    local_now = now.astimezone(ZoneInfo(TIMEZONE))
-    days_until_friday = (4 - local_now.weekday()) % 7
-    if days_until_friday <= 0:
-        days_until_friday += 7
-    friday_date = (local_now + timedelta(days=days_until_friday)).date()
-    saturday_date = friday_date + timedelta(days=1)
-
-    summary_desc = format_summary_description(sales)
-
-    # Single all-day event on Friday with a popup reminder
-    event = {
-        "summary": f"🏷️ Estate Sales This Weekend ({len(sales)} found)",
-        "description": summary_desc,
-        "start": {"date": friday_date.strftime("%Y-%m-%d")},
-        "end": {"date": saturday_date.strftime("%Y-%m-%d")},  # exclusive end
-        "colorId": "8",
-        "reminders": {
-            "useDefault": False,
-            "overrides": [{"method": "popup", "minutes": 60 * 12}],  # noon Thursday
-        },
-        "transparency": "transparent",
-    }
+    event = build_calendar_event(sales, now)
 
     try:
         service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
