@@ -12,7 +12,11 @@ import re
 import json
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 from typing import Optional
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -22,10 +26,9 @@ from googleapiclient.discovery import build
 BASE_URL = "https://www.estatesales.net/TX/Austin/78759"
 MAX_DISTANCE_MILES = 15
 
-# Calendar IDs (your Gmail addresses)
+# Calendar IDs (shared family calendar)
 CALENDAR_IDS = [
-    "richard.allman7@gmail.com",
-    "Bschlapkohl13@gmail.com",
+    "family06363352051675734146@group.calendar.google.com",
 ]
 
 # Path to service account credentials
@@ -252,45 +255,82 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=creds)
 
 
-def send_notification(message: str):
+def send_notification(message: str, dry_run: bool = False):
     """Create Google Calendar event with popup notification."""
-    service = get_calendar_service()
+    try:
+        service = get_calendar_service()
+        # Verify credentials work by making a lightweight call
+        service.calendarList().list(maxResults=1).execute()
+        if dry_run:
+            print("DRY RUN: Successfully authenticated with Google Calendar API.")
+            print("DRY RUN: Skipping event creation.")
+            return
+    except Exception as e:
+        print(f"Skipping notification (credentials issue): {e}")
+        return
 
-    # Event starts in 2 minutes, triggers notification immediately
-    now = datetime.utcnow()
-    start_time = now + timedelta(minutes=2)
-    end_time = start_time + timedelta(minutes=30)
+    now = datetime.now(timezone.utc)
 
-    event = {
+    # Calculate next Friday in local timezone for the all-day event
+    local_tz = ZoneInfo("America/Chicago")
+    local_now = now.astimezone(local_tz)
+    days_until_friday = (4 - local_now.weekday()) % 7  # Friday = 4
+    if days_until_friday == 0:
+        days_until_friday = 7
+    friday_date = (local_now + timedelta(days=days_until_friday)).date()
+    friday = friday_date.strftime("%Y-%m-%d")
+    friday_end = (friday_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # All-day event for Friday (the actual calendar entry)
+    main_event = {
         "summary": "Estate Sales This Weekend",
         "description": message,
+        "start": {"date": friday},
+        "end": {"date": friday_end},
+        "colorId": "8",  # Graphite/slate
+        "reminders": {"useDefault": False, "overrides": []},
+    }
+
+    # Notification event - starts in 2 min, popup fires ~1 min after creation
+    notif_time = now + timedelta(minutes=2)
+    notif_event = {
+        "summary": "🏷️ Estate Sales This Weekend",
+        "description": message,
         "start": {
-            "dateTime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "dateTime": notif_time.strftime("%Y-%m-%dT%H:%M:%S"),
             "timeZone": "UTC",
         },
         "end": {
-            "dateTime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "dateTime": (notif_time + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S"),
             "timeZone": "UTC",
         },
+        "colorId": "8",
         "reminders": {
             "useDefault": False,
-            "overrides": [
-                {"method": "popup", "minutes": 1},
-            ],
+            "overrides": [{"method": "popup", "minutes": 1}],
         },
+        "transparency": "transparent",  # Shows as "free" not "busy"
     }
 
+    events_to_create = [main_event, notif_event]
+
     for calendar_id in CALENDAR_IDS:
-        try:
-            created = service.events().insert(calendarId=calendar_id, body=event).execute()
-            print(f"Calendar event created for {calendar_id}: {created.get('htmlLink')}")
-        except Exception as e:
-            print(f"Failed to create event for {calendar_id}: {e}")
+        for event in events_to_create:
+            try:
+                service.events().insert(calendarId=calendar_id, body=event).execute()
+                print(f"Event created for {calendar_id}: {event['summary']}")
+            except Exception as e:
+                print(f"Failed to create event for {calendar_id}: {e}")
 
 
 def main():
     """Main entry point."""
     print(f"Fetching estate sales from {BASE_URL}...")
+
+    # Check for dry run flag
+    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+    if dry_run:
+        print("Running in DRY RUN mode - no events will be created.")
 
     try:
         sales = fetch_estate_sales()
@@ -301,13 +341,14 @@ def main():
         print(message)
 
         print("\nSending calendar invite notifications...")
-        send_notification(message)
+        send_notification(message, dry_run=dry_run)
 
         print("\nDone!")
     except Exception as e:
         error_msg = f"Estate Sales Notifier Error: {e}"
         print(error_msg)
-        send_notification(error_msg)
+        if not dry_run:
+            send_notification(error_msg)
         raise
 
 
