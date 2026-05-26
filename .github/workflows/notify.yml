@@ -2,7 +2,8 @@ name: Estate Sales Notifier
 
 on:
   schedule:
-    - cron: '0 3 * * 4'  # 03:00 UTC Thursday (9 PM Wednesday CST / 10 PM Wednesday CDT; GitHub Actions uses UTC and does not adjust for DST)
+    - cron: '0 21 * * 3'  # 9 PM Wednesday in America/Chicago.
+      timezone: "America/Chicago"
   workflow_dispatch:
 
 jobs:
